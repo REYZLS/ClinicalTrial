@@ -252,6 +252,3 @@ Typical environment:
 - Large datasets, embeddings, and model checkpoints are not included in this repository.
 
 ```
-
-
-这样很规范。
