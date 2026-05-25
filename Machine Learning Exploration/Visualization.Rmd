@@ -1,0 +1,620 @@
+---
+title: "Final code"
+author: "Ziliang Song"
+date: "2026-05-05"
+output: html_document
+---
+
+
+
+
+
+##EDA part
+```{r}
+training<- read.csv("Completed_train.csv")
+
+testing<- read.csv("Completed_test.csv")
+#Check the structure of both datasets.
+str(training)
+str(testing)
+```
+
+#Convert the completion_date and start_date from character to date format, and examine their distribution and basic statistics
+```{r}
+training <- training %>%
+  mutate(
+    start_date = as.Date(start_date),
+    completion_date = as.Date(completion_date)
+  )
+testing <- testing %>%
+  mutate(
+    start_date = as.Date(start_date),
+    completion_date = as.Date(completion_date)
+  )
+summary(training$completion_date)
+summary(testing$completion_date)
+```
+#A quick overview of duration distribution
+```{r}
+train_test <- bind_rows(training, testing)
+
+summary(train_test$time_day)
+
+sd(train_test$time_day, na.rm = TRUE)
+```
+
+##TARGET VARIABLE
+```{r}
+
+ggplot(train_test, aes(x = time_day)) +
+  geom_histogram(
+    bins = 50,
+    fill = "#6a5acd",
+    alpha = 0.7,
+    color = "white"
+  ) +
+  geom_vline(
+    aes(xintercept = mean(time_day, na.rm = TRUE)),
+    color = "red",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    aes(xintercept = median(time_day, na.rm = TRUE)),
+    color = "blue",
+    linetype = "dashed",
+    size = 1
+  ) +
+  labs(
+    title = "Trial Duration Distribution",
+    subtitle = "Red = Mean, Blue = Median",
+    x = "Duration (Days)",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#CATEGORICAL IMPACT
+```{r}
+ggplot(train_test, aes(x = phase.x)) +
+  geom_bar(
+    fill = "#72B7B2",
+    alpha = 0.9
+  ) +
+  stat_count(
+    geom = "text",
+    aes(label = after_stat(count)),
+    vjust = -0.3,
+    size = 4
+  ) +
+  labs(
+    title = "Distribution of Trial Phases",
+    x = "Phase",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+```{r}
+ggplot(train_test, aes(x = phase.x, y = time_day, fill = phase.x)) +
+  geom_boxplot(
+    width = 0.6,
+    outlier.alpha = 0.2,
+    outlier.size = 1
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Trial Duration Variance by Phase",
+    subtitle = "Distribution of duration across different trial phases",
+    x = "Trial Phase",
+    y = "Duration (Days)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13, color = "gray40"),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+
+
+
+#SIZE CORRELATION
+```{r}
+ggplot(train_test, aes(x = enrollment)) +
+  geom_histogram(
+    binwidth = 50, 
+    fill = "#4C78A8",
+    color = "white",
+    alpha = 0.9
+  ) +
+  coord_cartesian(xlim = c(0, 2000)) + 
+  labs(
+    title = "Enrollment Distribution",
+    subtitle = "Bin width = 50",
+    x = "Enrollment",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#Relationship between enrollment and duration
+```{r}
+ggplot(train_test %>% filter(enrollment > 0), aes(x = enrollment, y = time_day)) +
+  geom_point(
+    alpha = 0.2,
+    size = 1,
+    color = "#2C5AA0"
+  ) +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "#D55E00",
+    linewidth = 1.2
+  ) +
+  scale_x_log10() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Enrollment vs. Trial Duration",
+    subtitle = "Enrollment shown on a log10 scale",
+    x = "Enrollment (log10 scale)",
+    y = "Duration (Days)"
+  )
+
+
+```
+
+#TEXT LENGTH
+```{r}
+ziliang_data %>%
+  mutate(word_count = str_count(criteria, "\\w+")) %>%
+  ggplot(aes(x = word_count)) +
+  geom_histogram(
+    bins = 50,
+    fill = "#2A9D8F",
+    color = "white",
+    alpha = 0.9
+  ) +
+  geom_vline(
+    xintercept = 512,
+    linetype = "dashed",
+    color = "#E76F51",
+    linewidth = 1.2
+  ) +
+  annotate(
+    "text",
+    x = 512,
+    y = Inf,                   
+    label = "512 Token Limit",
+    color = "#E76F51",
+    vjust = 1.5,
+    hjust = 1.1,
+    size = 4
+  ) +
+  coord_cartesian(xlim = c(0, 2000)) + 
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Distribution of Criteria Text Length",
+    subtitle = "Word count used as a proxy for token length",
+    x = "Word Count",
+    y = "Count"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 12, color = "gray40"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )
+```
+
+#outlier detection
+```{r}
+Q1 <- quantile(train_test$time_day, 0.25, na.rm = TRUE)
+Q3 <- quantile(train_test$time_day, 0.75, na.rm = TRUE)
+IQR_val <- Q3 - Q1
+
+lower_bound <- Q1 - 1.5 * IQR_val
+upper_bound <- Q3 + 1.5 * IQR_val
+
+train_test <- train_test %>%
+  mutate(
+    is_outlier = time_day > upper_bound | time_day < lower_bound
+  )
+
+outlier_ratio <- mean(train_test$is_outlier, na.rm = TRUE)
+print(outlier_ratio)
+
+
+ggplot(train_test, aes(y = time_day)) +
+  geom_jitter(
+    aes(x = 0, color = is_outlier),
+    alpha = 0.2,
+    width = 0.15,
+    size = 0.8
+  ) +
+  geom_boxplot(
+    width = 0.3,
+    fill = "orange",
+    color = "black",
+    alpha = 0.6,
+    outlier.shape = NA   
+  ) +
+  geom_hline(
+    yintercept = upper_bound,
+    linetype = "dashed",
+    color = "red",
+    linewidth = 1
+  ) +
+  annotate(
+    "text",
+    x = -0.1,
+    y = upper_bound,
+    label = paste0("Cutoff = ", round(upper_bound, 1)),
+    color = "blue",
+    hjust = 0,
+    vjust = -1,
+    size = 4
+  )+
+  scale_color_manual(values = c("FALSE" = "grey", "TRUE" = "#E63946")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  labs(
+    title = "Outlier Detection for Trial Duration",
+    subtitle = "Based on 1.5 × IQR rule",
+    y = "Duration (Days)"
+  )
+```
+
+
+
+
+
+
+##Ablation
+```{r}
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(ggplot2)
+```
+
+
+```{r}
+folder_path <- "Ablation_result"
+
+file_list <- list.files(
+  path = folder_path,
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+data_list <- lapply(file_list, function(file) {
+  read_csv(file, show_col_types = FALSE)
+})
+
+names(data_list) <- basename(file_list)
+
+prediction_files <- names(data_list)[
+  str_detect(names(data_list), "_predictions\\.csv$")
+]
+
+prediction_list <- data_list[prediction_files]
+
+length(prediction_list)
+names(prediction_list)
+
+all_pred <- map_dfr(prediction_files, function(file_name) {
+  
+    df <- prediction_list[[file_name]]
+  
+  base_name <- str_remove(file_name, "\\.csv$")
+  base_name <- str_remove(base_name, "_predictions$")
+  
+  parts <- str_split(base_name, "__", simplify = TRUE)
+  
+  df %>%
+    mutate(
+      source_file = file_name,
+      feature_setting = parts[1],
+      model = parts[2]
+    )
+})
+
+metrics_df <- all_pred %>%
+  group_by(model, feature_setting) %>%
+  summarise(
+    n = n(),
+    MAE = mean(abs(y_true - y_pred), na.rm = TRUE),
+    RMSE = sqrt(mean((y_true - y_pred)^2, na.rm = TRUE)),
+    R2 = 1 - sum((y_true - y_pred)^2, na.rm = TRUE) / 
+      sum((y_true - mean(y_true, na.rm = TRUE))^2, na.rm = TRUE),
+    Spearman = cor(y_true, y_pred, method = "spearman", use = "complete.obs"),
+      .groups = "drop"
+  )
+
+metrics_df%>%
+  arrange(MAE)
+```
+
+
+##Histogram of Abaltion
+```{r}
+library(viridis)
+
+plot_df <- metrics_df %>%
+  mutate(label = paste(model, feature_setting, sep = " | "))
+
+ggplot(plot_df, aes(y = reorder(label, MAE), x = MAE, fill = MAE)) +
+  geom_col() +
+  scale_fill_viridis(option = "C") +
+  labs(
+    title = "MAE by Model and Feature Setting",
+    y = "Model | Feature Setting",
+    x = "MAE"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8)
+  )
+
+ggplot(plot_df, aes(y = reorder(label, R2), x = R2, fill = R2)) +
+  geom_col() +
+  scale_fill_viridis(option = "D") +
+  labs(
+    title = "R² by Model and Feature Setting",
+    y = "Model | Feature Setting",
+    x = "R²"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8)
+  )
+
+```
+
+
+
+
+
+
+
+##Metrics by phase
+```{r}
+df <- read_csv("final_phase_metrics.csv")
+
+df_all <- df %>%
+  filter(experiment == "all_features")
+
+models <- unique(df_all$model)
+
+for (m in models) {
+  
+  cat("\n====================================\n")
+  cat("Model:", m, "\n")
+  cat("====================================\n")
+  
+  tab <- df_all %>%
+    filter(model == m) %>%
+    mutate(
+      phase = as.character(phase),
+      phase = factor(phase, levels = c("All", "1", "2", "3", "4"))
+    ) %>%
+    arrange(phase) %>%
+    transmute(
+      Phase = phase,
+      `MAE (↓)` = sprintf("%.3f", MAE),
+      `RMSE (↓)` = sprintf("%.3f", RMSE),
+      `R^2 (↑)` = sprintf("%.3f", R2),
+      `Pearson Corr. (↑)` = sprintf("%.3f", Pearson)
+    )
+  
+  print(tab)
+}
+```
+
+##Reuslts of Machine learning Methods
+```{r}
+baseline <- read_csv("all_model_results.csv")
+
+baseline <- baseline %>%
+  mutate(model = as.character(model))
+
+transformer <- read_csv("transformer_mlp_metrics.csv")
+
+transformer <- transformer %>%
+  mutate(model = "Transformer + MLP")
+
+common_cols <- intersect(names(baseline), names(transformer))
+
+baseline2 <- baseline %>% select(all_of(common_cols))
+transformer2 <- transformer %>% select(all_of(common_cols))
+
+compare_df <- bind_rows(baseline2, transformer2)
+
+final_table <- compare_df %>%
+  select(model, MAE, MSE, RMSE, R2, Pearson_r) %>%
+  mutate(
+    MAE = round(MAE, 3),
+    MSE = round(MSE, 3),
+    RMSE = round(RMSE, 3),
+    R2 = round(R2, 3),
+    Pearson_r = round(Pearson_r, 3)
+  )
+
+print(final_table)
+```
+
+
+##Hyperparameter setting
+```{r}
+hyp <- read_csv("hyperparameter_search_summary.csv")
+table_hyp <- hyp %>%
+  select(
+    name,
+    d_model,
+    nhead,
+    num_layers,
+    dim_feedforward,
+    dropout,
+    mlp_hidden,
+    lr,
+    weight_decay,
+    MAE,
+    RMSE,
+    R2,
+    Pearson_r
+  ) %>%
+  arrange(RMSE)
+
+print(table_hyp)
+table_hyp <- hyp %>%
+  select(name, MAE, RMSE, R2, Pearson_r) %>%
+  arrange(RMSE)
+
+print(table_hyp)
+```
+
+##Distribution of Duration
+```{r}
+training <- read_csv(
+ "time_prediction_test_filtered_with_phase_enrollment.csv"
+)
+
+testing <- read_csv(
+  "time_prediction_train_filtered_with_phase_enrollment.csv"
+)
+
+train_filtered <- train_filtered %>%
+  mutate(phase = coalesce(phase.y, phase.x)) %>%
+  select(-phase.x, -phase.y)
+
+
+ggplot(train_filtered, aes(x = time_day)) +
+  geom_histogram(
+    bins = 50,
+    fill = "#6a5acd",
+    alpha = 0.7,
+    color = "white"
+  ) +
+  geom_vline(
+    aes(xintercept = mean(time_day, na.rm = TRUE)),
+    color = "red",
+    linetype = "dashed",
+    size = 1
+  ) +
+  geom_vline(
+    aes(xintercept = median(time_day, na.rm = TRUE)),
+    color = "blue",
+    linetype = "dashed",
+    size = 1
+  ) +
+  labs(
+    title = "Trial Duration Distribution",
+    subtitle = "Red = Mean, Blue = Median",
+    x = "Duration (Days)",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+##Distribution of Enrollment
+```{r}
+ggplot(train_filtered, aes(x = enrollment)) +
+  geom_histogram(
+    binwidth = 50,          # 每100一个区间
+    fill = "#4C78A8",
+    color = "white",
+    alpha = 0.9
+  ) +
+  coord_cartesian(xlim = c(0, 2000)) +   # 👈 关键：只展示主要部分
+  labs(
+    title = "Enrollment Distribution",
+    subtitle = "Bin width = 50",
+    x = "Enrollment",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+
+##Heatamp
+```{r}
+importance_df <- metrics_df %>%
+  group_by(model) %>%
+  mutate(
+    baseline_MAE = MAE[feature_setting == "all_features"]
+  ) %>%
+  filter(feature_setting != "all_features") %>%
+  mutate(
+    delta_MAE = MAE - baseline_MAE
+  )
+
+importance_wide <- importance_df %>%
+  select(model, feature_setting, delta_MAE) %>%
+  tidyr::pivot_wider(
+    names_from = model,
+    values_from = delta_MAE
+  )
+
+importance_avg <- importance_df %>%
+  group_by(feature_setting) %>%
+  summarise(
+    mean_delta = mean(delta_MAE),
+    sd_delta = sd(delta_MAE)
+  ) %>%
+  arrange(desc(mean_delta))
+ggplot(importance_df,
+       aes(x = model, y = feature_setting, fill = delta_MAE)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+  labs(
+    title = "Feature Importance Heatmap",
+    x = "Model",
+    y = "Feature Removed",
+    fill = "ΔMAE"
+  ) +
+  theme_bw()
+```
+
+##Table of outliers
+```{r}
+outlier<- read.csv("original_vs_no_extreme_summary.csv")
+outlier_df <- outlier %>%
+  filter(split == "test") %>%
+  select(case, MAE, RMSE, R2, Pearson_r)
+
+outlier_df
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
